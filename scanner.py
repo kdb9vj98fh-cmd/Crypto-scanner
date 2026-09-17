@@ -1,6 +1,5 @@
 import csv
 import json
-import math
 import os
 import time
 import urllib.parse
@@ -15,20 +14,9 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 FIELDS = [
-    "time",
-    "symbol",
-    "side",
-    "timeframe",
-    "setup_type",
-    "entry",
-    "stop",
-    "tp1",
-    "tp2",
-    "tp3",
-    "planned_rr",
-    "trigger",
-    "status",
-    "last_checked",
+    "time", "symbol", "side", "timeframe", "setup_type",
+    "entry", "stop", "tp1", "tp2", "tp3",
+    "planned_rr", "trigger", "status", "last_checked",
 ]
 
 
@@ -41,10 +29,7 @@ def send_telegram(message):
         print("Telegram: Secrets fehlen")
         return False
 
-    url = (
-        f"https://api.telegram.org/"
-        f"bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    )
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
     data = urllib.parse.urlencode({
         "chat_id": TELEGRAM_CHAT_ID,
@@ -74,7 +59,7 @@ def send_telegram(message):
 
 
 # ============================================================
-# OKX API
+# OKX
 # ============================================================
 
 def api_get(path, params=None):
@@ -126,16 +111,10 @@ def get_markets():
             and inst_id.endswith("-USDT-SWAP")
         ):
             markets.append(
-                (
-                    inst_id,
-                    volumes.get(inst_id, 0),
-                )
+                (inst_id, volumes.get(inst_id, 0))
             )
 
-    markets.sort(
-        key=lambda x: x[1],
-        reverse=True,
-    )
+    markets.sort(key=lambda x: x[1], reverse=True)
 
     return [x[0] for x in markets[:MAX_MARKETS]]
 
@@ -182,8 +161,7 @@ def ema(values, period):
 
     for value in values[1:]:
         result.append(
-            alpha * value
-            + (1 - alpha) * result[-1]
+            alpha * value + (1 - alpha) * result[-1]
         )
 
     return result
@@ -208,10 +186,11 @@ def atr(data, period=14):
             )
         )
 
-    if not tr:
+    values = tr[-period:]
+
+    if not values:
         return 0
 
-    values = tr[-period:]
     return sum(values) / len(values)
 
 
@@ -219,16 +198,13 @@ def average_volume(data, period=20):
     if not data:
         return 0
 
-    values = [
-        x["volume"]
-        for x in data[-period:]
-    ]
+    values = [x["volume"] for x in data[-period:]]
 
     return sum(values) / len(values)
 
 
 # ============================================================
-# CANDLE PATTERNS
+# CANDLE HELPERS
 # ============================================================
 
 def body(c):
@@ -236,10 +212,7 @@ def body(c):
 
 
 def candle_range(c):
-    return max(
-        c["high"] - c["low"],
-        1e-12,
-    )
+    return max(c["high"] - c["low"], 1e-12)
 
 
 def bullish(c):
@@ -272,16 +245,13 @@ def bullish_rejection(c):
     rng = candle_range(c)
 
     lower_wick = (
-        min(c["open"], c["close"])
-        - c["low"]
+        min(c["open"], c["close"]) - c["low"]
     )
 
     return (
         lower_wick >= body(c) * 1.5
         and lower_wick / rng >= 0.35
-        and c["close"] > (
-            c["low"] + rng * 0.55
-        )
+        and c["close"] > c["low"] + rng * 0.55
     )
 
 
@@ -289,16 +259,13 @@ def bearish_rejection(c):
     rng = candle_range(c)
 
     upper_wick = (
-        c["high"]
-        - max(c["open"], c["close"])
+        c["high"] - max(c["open"], c["close"])
     )
 
     return (
         upper_wick >= body(c) * 1.5
         and upper_wick / rng >= 0.35
-        and c["close"] < (
-            c["low"] + rng * 0.45
-        )
+        and c["close"] < c["low"] + rng * 0.45
     )
 
 
@@ -325,8 +292,7 @@ def bullish_displacement(data):
     cur = data[-1]
 
     avg_body = sum(
-        body(x)
-        for x in data[-10:-1]
+        body(x) for x in data[-10:-1]
     ) / 9
 
     return (
@@ -342,8 +308,7 @@ def bearish_displacement(data):
     cur = data[-1]
 
     avg_body = sum(
-        body(x)
-        for x in data[-10:-1]
+        body(x) for x in data[-10:-1]
     ) / 9
 
     return (
@@ -353,7 +318,7 @@ def bearish_displacement(data):
 
 
 # ============================================================
-# MARKET STRUCTURE
+# 1H BIAS
 # ============================================================
 
 def get_bias(data):
@@ -364,7 +329,6 @@ def get_bias(data):
 
     e20 = ema(closes, 20)[-1]
     e50 = ema(closes, 50)[-1]
-
     price = closes[-1]
 
     if price > e20 > e50:
@@ -376,6 +340,10 @@ def get_bias(data):
     return "NEUTRAL"
 
 
+# ============================================================
+# 30M SETUP
+# ============================================================
+
 def setup_30m(data):
     if len(data) < 25:
         return None
@@ -385,20 +353,10 @@ def setup_30m(data):
 
     history = data[-22:-2]
 
-    resistance = max(
-        x["high"]
-        for x in history
-    )
+    resistance = max(x["high"] for x in history)
+    support = min(x["low"] for x in history)
 
-    support = min(
-        x["low"]
-        for x in history
-    )
-
-    avg_vol = average_volume(
-        data[:-1],
-        20,
-    )
+    avg_vol = average_volume(data[:-1], 20)
 
     volume_ok = (
         avg_vol > 0
@@ -406,10 +364,7 @@ def setup_30m(data):
     )
 
     # Breakout
-    if (
-        cur["close"] > resistance
-        and bullish(cur)
-    ):
+    if cur["close"] > resistance and bullish(cur):
         return {
             "side": "LONG",
             "type": "Breakout",
@@ -418,10 +373,7 @@ def setup_30m(data):
         }
 
     # Breakdown
-    if (
-        cur["close"] < support
-        and bearish(cur)
-    ):
+    if cur["close"] < support and bearish(cur):
         return {
             "side": "SHORT",
             "type": "Breakdown",
@@ -429,7 +381,7 @@ def setup_30m(data):
             "volume_ok": volume_ok,
         }
 
-    # Liquidity Sweep unten + Reclaim
+    # Sweep unten + Reclaim
     if (
         cur["low"] < support
         and cur["close"] > support
@@ -442,7 +394,7 @@ def setup_30m(data):
             "volume_ok": volume_ok,
         }
 
-    # Liquidity Sweep oben + Reclaim
+    # Sweep oben + Reclaim
     if (
         cur["high"] > resistance
         and cur["close"] < resistance
@@ -459,8 +411,7 @@ def setup_30m(data):
 
     # Support Rejection
     if (
-        abs(cur["low"] - support)
-        <= tolerance
+        abs(cur["low"] - support) <= tolerance
         and (
             bullish_rejection(cur)
             or bullish_engulfing(prev, cur)
@@ -475,8 +426,7 @@ def setup_30m(data):
 
     # Resistance Rejection
     if (
-        abs(cur["high"] - resistance)
-        <= tolerance
+        abs(cur["high"] - resistance) <= tolerance
         and (
             bearish_rejection(cur)
             or bearish_engulfing(prev, cur)
@@ -493,7 +443,7 @@ def setup_30m(data):
 
 
 # ============================================================
-# 15M ENTRY TRIGGER
+# 15M TRIGGER
 # ============================================================
 
 def trigger_15m(data, side):
@@ -503,10 +453,7 @@ def trigger_15m(data, side):
     cur = data[-1]
     prev = data[-2]
 
-    avg_vol = average_volume(
-        data[:-1],
-        20,
-    )
+    avg_vol = average_volume(data[:-1], 20)
 
     volume_ok = (
         avg_vol > 0
@@ -528,12 +475,10 @@ def trigger_15m(data, side):
             > max(x["high"] for x in recent)
         )
 
-        if pattern and (
-            structure_break or volume_ok
-        ):
+        if pattern and (structure_break or volume_ok):
             return (
-                "Bullish candle confirmation"
-                " + 15m structure/momentum"
+                "Bullish candle confirmation "
+                "+ 15m structure/momentum"
             )
 
     if side == "SHORT":
@@ -549,39 +494,27 @@ def trigger_15m(data, side):
             < min(x["low"] for x in recent)
         )
 
-        if pattern and (
-            structure_break or volume_ok
-        ):
+        if pattern and (structure_break or volume_ok):
             return (
-                "Bearish candle confirmation"
-                " + 15m structure/momentum"
+                "Bearish candle confirmation "
+                "+ 15m structure/momentum"
             )
 
     return None
 
 
 # ============================================================
-# TRADE CONSTRUCTION
+# TRADE
 # ============================================================
 
-def make_trade(
-    symbol,
-    side,
-    setup,
-    trigger,
-    data15,
-):
+def make_trade(symbol, side, setup, trigger, data15):
     entry = data15[-1]["close"]
-
     current_atr = atr(data15, 14)
 
     recent = data15[-6:]
 
     if side == "LONG":
-        structural = min(
-            x["low"]
-            for x in recent
-        )
+        structural = min(x["low"] for x in recent)
 
         stop = min(
             structural,
@@ -598,10 +531,7 @@ def make_trade(
         tp3 = entry + risk * 3
 
     else:
-        structural = max(
-            x["high"]
-            for x in recent
-        )
+        structural = max(x["high"] for x in recent)
 
         stop = max(
             structural,
@@ -617,9 +547,7 @@ def make_trade(
         tp2 = entry - risk * 2
         tp3 = entry - risk * 3
 
-    now = datetime.now(
-        timezone.utc
-    ).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     return {
         "time": now,
@@ -684,11 +612,7 @@ def duplicate(rows, symbol, side):
             row.get("symbol") == symbol
             and row.get("side") == side
             and row.get("status")
-            in {
-                "OPEN",
-                "TP1",
-                "TP2",
-            }
+            in {"OPEN", "TP1", "TP2"}
         ):
             return True
 
@@ -703,16 +627,9 @@ def update_outcomes(rows):
     changes = []
 
     for row in rows:
-        old_status = row.get(
-            "status",
-            "OPEN",
-        )
+        old_status = row.get("status", "OPEN")
 
-        if old_status not in {
-            "OPEN",
-            "TP1",
-            "TP2",
-        }:
+        if old_status not in {"OPEN", "TP1", "TP2"}:
             continue
 
         try:
@@ -725,7 +642,6 @@ def update_outcomes(rows):
             continue
 
         try:
-            entry = float(row["entry"])
             stop = float(row["stop"])
             tp1 = float(row["tp1"])
             tp2 = float(row["tp2"])
@@ -737,10 +653,7 @@ def update_outcomes(rows):
 
         try:
             signal_time = datetime.fromisoformat(
-                row["time"].replace(
-                    "Z",
-                    "+00:00",
-                )
+                row["time"].replace("Z", "+00:00")
             ).timestamp() * 1000
         except Exception:
             signal_time = 0
@@ -771,8 +684,6 @@ def update_outcomes(rows):
                 or tp3_hit
             )
 
-            # Stop und Target in derselben
-            # Kerze -> Reihenfolge unbekannt
             if stop_hit and target_hit:
                 new_status = "UNCLEAR"
                 break
@@ -792,9 +703,9 @@ def update_outcomes(rows):
                 if new_status == "OPEN":
                     new_status = "TP1"
 
-        row["last_checked"] = datetime.now(
-            timezone.utc
-        ).isoformat()
+        row["last_checked"] = (
+            datetime.now(timezone.utc).isoformat()
+        )
 
         if new_status != old_status:
             row["status"] = new_status
@@ -812,14 +723,13 @@ def update_outcomes(rows):
 
 
 # ============================================================
-# TELEGRAM MESSAGES
+# TELEGRAM ALERTS
 # ============================================================
 
 def send_trade_alert(trade):
     message = (
         "🚨 NEUES SETUP\n\n"
-        f"{trade['symbol']} "
-        f"{trade['side']}\n\n"
+        f"{trade['symbol']} {trade['side']}\n\n"
         f"Setup: {trade['setup_type']}\n"
         f"Timeframe: {trade['timeframe']}\n"
         f"Trigger: {trade['trigger']}\n\n"
@@ -828,8 +738,7 @@ def send_trade_alert(trade):
         f"TP1: {trade['tp1']}\n"
         f"TP2: {trade['tp2']}\n"
         f"TP3: {trade['tp3']}\n\n"
-        f"CRV zu TP2: "
-        f"1:{trade['planned_rr']}"
+        f"CRV zu TP2: 1:{trade['planned_rr']}"
     )
 
     send_telegram(message)
@@ -863,7 +772,7 @@ def main():
 
     rows = load_journal()
 
-    # Erst bestehende Trades prüfen
+    # Alte Trades prüfen
     changes = update_outcomes(rows)
 
     for change in changes:
@@ -871,17 +780,13 @@ def main():
 
     try:
         markets = get_markets()
+
     except Exception as e:
-        print(
-            f"MARKET ERROR: {e}"
-        )
+        print(f"MARKET ERROR: {e}")
         save_journal(rows)
         return
 
-    print(
-        f"OKX markets selected: "
-        f"{len(markets)}"
-    )
+    print(f"OKX markets selected: {len(markets)}")
 
     scanned = 0
     errors = 0
@@ -920,7 +825,6 @@ def main():
             scanned += 1
 
             bias = get_bias(data1h)
-
             setup = setup_30m(data30)
 
             if not setup:
@@ -928,18 +832,11 @@ def main():
 
             side = setup["side"]
 
-            # 1H Bias als Kontext.
-            # Nur klar gegensätzlichen Trend vermeiden.
-            if (
-                bias == "LONG"
-                and side == "SHORT"
-            ):
+            # Gegen klaren 1H-Trend keine Entries
+            if bias == "LONG" and side == "SHORT":
                 continue
 
-            if (
-                bias == "SHORT"
-                and side == "LONG"
-            ):
+            if bias == "SHORT" and side == "LONG":
                 continue
 
             trigger = trigger_15m(
@@ -977,14 +874,12 @@ def main():
                 f"{setup['type']}"
             )
 
-            # Sofort Telegram schicken
+            # Neues bestätigtes Setup sofort senden
             send_trade_alert(trade)
 
         except Exception as e:
             errors += 1
-            print(
-                f"ERROR {symbol}: {e}"
-            )
+            print(f"ERROR {symbol}: {e}")
 
         if index % 10 == 0:
             print(
@@ -996,29 +891,13 @@ def main():
 
     save_journal(rows)
 
-    print(
-        f"Successfully scanned: "
-        f"{scanned}"
-    )
+    print(f"Successfully scanned: {scanned}")
+    print(f"Errors: {errors}")
+    print(f"Confirmed setups: {len(signals)}")
+    print(f"Journal updates: {len(changes)}")
 
-    print(
-        f"Errors: {errors}"
-    )
-
-    print(
-        f"Confirmed setups: "
-        f"{len(signals)}"
-    )
-
-    print(
-        f"Journal updates: "
-        f"{len(changes)}"
-    )
-
-    # Bei manuellem Start bekommen wir
-    # zusätzlich eine Test-/Statusmeldung.
-    # Bei automatischen Läufen NICHT,
-    # damit Telegram nicht alle 15 Min spammt.
+    # Bei manuellem GitHub-Start immer Testmeldung schicken.
+    # Automatische Läufe schicken nur neue Setups/Updates.
     if (
         os.environ.get("GITHUB_EVENT_NAME")
         == "workflow_dispatch"
@@ -1030,3 +909,11 @@ def main():
             f"Neue Setups: {len(signals)}\n"
             f"Journal Updates: {len(changes)}"
         )
+
+
+# ============================================================
+# START
+# ============================================================
+
+if __name__ == "__main__":
+    main()

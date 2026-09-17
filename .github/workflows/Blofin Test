@@ -1,0 +1,12 @@
+name: Crypto Scanner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test BloFin API
+        run: |
+          python -c "import urllib.request; u='https://openapi.blofin.com/api/v1/market/candles?instId=BTC-USDT&bar=15m&limit=2'; print(urllib.request.urlopen(u,timeout=20).read().decode())"

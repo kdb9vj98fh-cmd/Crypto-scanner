@@ -2,13 +2,11 @@ name: Crypto Scanner
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "2,17,32,47 * * * *"
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Test BloFin
+      - name: Test BloFin API
         run: |
           python -c "import urllib.request; u='https://openapi.blofin.com/api/v1/market/candles?instId=BTC-USDT&bar=15m&limit=2'; print(urllib.request.urlopen(u,timeout=20).read().decode())"

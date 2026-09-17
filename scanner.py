@@ -443,12 +443,66 @@ def duplicate(rows,strategy,symbol,side):
     return False
 
 
+def deutsch(text):
+    text = str(text)
+    ersetzungen = [
+        ("CREAMER_CRYPTO", "CREAMER-STRATEGIE"),
+        ("CURRENT", "BISHERIGE STRATEGIE"),
+        ("Liquidity Sweep/Reclaim", "LiquiditÃ¤ts-Sweep + RÃ¼ckeroberung"),
+        ("Support Rejection", "Abweisung am Support"),
+        ("Resistance Rejection", "Abweisung am Widerstand"),
+        ("failed auction/reclaim", "Fehlausbruch + RÃ¼ckeroberung"),
+        ("downside sweep/reclaim", "LiquiditÃ¤ts-Sweep unten + RÃ¼ckeroberung"),
+        ("upside sweep/reclaim", "LiquiditÃ¤ts-Sweep oben + RÃ¼ckeroberung"),
+        ("failed breakdown", "Fehlausbruch nach unten"),
+        ("failed breakout", "Fehlausbruch nach oben"),
+        ("VAL/discount rejection", "Abweisung in der gÃ¼nstigen Value-Zone"),
+        ("VAH/premium rejection", "Abweisung in der teuren Value-Zone"),
+        ("breakout retest", "Ausbruch nach oben + RÃ¼cktest"),
+        ("breakdown retest", "Ausbruch nach unten + RÃ¼cktest"),
+        ("Bullish candle + 15m structure/momentum", "Bullische Kerze + 15m Struktur/Momentum"),
+        ("Bearish candle + 15m structure/momentum", "BÃ¤rische Kerze + 15m Struktur/Momentum"),
+        ("absorption proxy", "Absorptions-BestÃ¤tigung"),
+        ("reaction candle", "Reaktionskerze"),
+        ("displacement", "starke Impulskerze"),
+        ("15m structure break", "15m Strukturbruch"),
+        ("volume confirmation", "VolumenbestÃ¤tigung"),
+        ("location score", "Zonen-Score"),
+        ("Breakdown", "Ausbruch nach unten"),
+        ("Breakout", "Ausbruch nach oben"),
+        ("NEUTRAL", "NEUTRAL"),
+        ("LONG", "LONG"),
+        ("SHORT", "SHORT"),
+        ("OPEN", "OFFEN"),
+        ("UNCLEAR", "UNKLAR"),
+        ("TP1_THEN_STOP", "TP1 ERREICHT â DANACH STOP"),
+        ("TP2_THEN_STOP", "TP2 ERREICHT â DANACH STOP"),
+        ("STOP", "STOP-LOSS"),
+    ]
+    for a, b in ersetzungen:
+        text = text.replace(a, b)
+    return text
+
+
+def strategie_name(name):
+    return "Creamer-Strategie" if name == "CREAMER_CRYPTO" else "Bisherige Strategie"
+
+
 def notify_trade(t):
+    richtung = "ð¢ LONG" if t["side"] == "LONG" else "ð´ SHORT"
     telegram(
-        f"ð¨ [{t['strategy']}] {t['symbol']} {t['side']}\n"
-        f"Setup: {t['setup_type']}\nTrigger: {t['trigger']}\n"
-        f"Entry: {t['entry']}\nStop: {t['stop']}\n"
-        f"TP1: {t['tp1']}\nTP2: {t['tp2']}\nTP3: {t['tp3']}\nCRV TP2: 1:2"
+        f"ð¨ NEUES SIGNAL â {strategie_name(t['strategy'])}\n\n"
+        f"Paar: {t['symbol']}\n"
+        f"Richtung: {richtung}\n"
+        f"Zeitrahmen: {t['timeframe']}\n"
+        f"Setup: {deutsch(t['setup_type'])}\n"
+        f"BestÃ¤tigung: {deutsch(t['trigger'])}\n\n"
+        f"Einstieg: {t['entry']}\n"
+        f"Stop-Loss: {t['stop']}\n"
+        f"Ziel 1: {t['tp1']}\n"
+        f"Ziel 2: {t['tp2']}\n"
+        f"Ziel 3: {t['tp3']}\n"
+        f"CRV bis Ziel 2: 1:2"
     )
 
 
@@ -487,7 +541,12 @@ def update_journal(rows):
             r["status"]=status
             r["last_checked"]=now()
             if status!=old:
-                msg=f"ð [{r.get('strategy','CURRENT')}] {r['symbol']} {r['side']}: {old} â {status}"
+                msg=(
+                    f"ð SIGNAL-UPDATE â {strategie_name(r.get('strategy','CURRENT'))}\n\n"
+                    f"Paar: {r['symbol']}\n"
+                    f"Richtung: {r['side']}\n"
+                    f"Status: {deutsch(old)} â {deutsch(status)}"
+                )
                 changes.append(msg); telegram(msg)
         except Exception as e:
             print("Journal error",r.get("symbol"),e)
@@ -564,10 +623,12 @@ def main():
 
     if os.environ.get("GITHUB_EVENT_NAME")=="workflow_dispatch":
         telegram(
-            "â CRYPTO SCANNER AKTIV\n\n"
-            f"MÃ¤rkte geprÃ¼ft: {scanned}/{len(ms)}\nFehler: {errors}\n"
-            f"CURRENT neu: {current_n}\nCREAMER_CRYPTO neu: {creamer_n}\n"
-            f"Journal Updates: {len(changes)}"
+            "â CRYPTO-SCANNER AKTIV\n\n"
+            f"MÃ¤rkte geprÃ¼ft: {scanned}/{len(ms)}\n"
+            f"Fehler: {errors}\n"
+            f"Neue Signale â Bisherige Strategie: {current_n}\n"
+            f"Neue Signale â Creamer-Strategie: {creamer_n}\n"
+            f"Journal-Aktualisierungen: {len(changes)}"
         )
 
 

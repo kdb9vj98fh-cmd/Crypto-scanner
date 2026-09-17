@@ -7,6 +7,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Test BloFin API
+      - name: Test OKX API
         run: |
-          python -c "import urllib.request; u='https://openapi.blofin.com/api/v1/market/candles?instId=BTC-USDT&bar=15m&limit=2'; print(urllib.request.urlopen(u,timeout=20).read().decode())"
+          python -c "import urllib.request; u='https://www.okx.com/api/v5/market/candles?instId=BTC-USDT-SWAP&bar=15m&limit=2'; r=urllib.request.Request(u,headers={'User-Agent':'Mozilla/5.0'}); print(urllib.request.urlopen(r,timeout=20).read().decode())"

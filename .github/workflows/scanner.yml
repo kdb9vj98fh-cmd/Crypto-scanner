@@ -2,11 +2,49 @@ name: Crypto Scanner
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "2,17,32,47 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: crypto-scanner
+  cancel-in-progress: false
 
 jobs:
-  test:
+  scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 14
+
     steps:
-      - name: Test OKX API
+      - name: Repository laden
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Scanner starten
+        run: python scanner.py
+
+      - name: Journal speichern
         run: |
-          python -c "import urllib.request; u='https://www.okx.com/api/v5/market/candles?instId=BTC-USDT-SWAP&bar=15m&limit=2'; r=urllib.request.Request(u,headers={'User-Agent':'Mozilla/5.0'}); print(urllib.request.urlopen(r,timeout=20).read().decode())"
+          if [ ! -f signals.csv ]; then
+            echo "Keine signals.csv vorhanden"
+            exit 0
+          fi
+
+          if git diff --quiet -- signals.csv && git diff --cached --quiet; then
+            echo "Keine Journal-Änderungen"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add signals.csv
+          git commit -m "Update signal journal"
+          git pull --rebase
+          git push

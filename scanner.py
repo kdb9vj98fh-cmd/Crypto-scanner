@@ -6,141 +6,308 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+# ============================================================
+# V3 MEAN REVERSION
+# RSI-Extrem -> Umkehrbestätigung -> Entry -> SL -> TP 2R
+# ============================================================
+
 BASE = "https://www.okx.com"
 JOURNAL = "signals.csv"
-MAX_MARKETS = 100
-PAUSE = 0.04
-TEST_LIMIT = 100
-STRATEGY = "V2.1"
+
+STRATEGY = "V3_MEAN_REVERSION"
+
+MAX_MARKETS = 400
+PAUSE = 0.035
+
+RSI_PERIOD = 14
+RSI_OVERSOLD = 25
+RSI_OVERBOUGHT = 75
+
+RR = 2.0
+ATR_STOP_BUFFER = 0.15
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 FIELDS = [
-    "time", "strategy", "symbol", "side", "timeframe", "setup_type",
-    "entry", "stop", "tp1", "tp2", "tp3", "planned_rr",
-    "trigger", "status", "last_checked"
+    "time",
+    "strategy",
+    "symbol",
+    "side",
+    "timeframe",
+    "setup_type",
+    "entry",
+    "stop",
+    "tp1",
+    "tp2",
+    "tp3",
+    "planned_rr",
+    "trigger",
+    "status",
+    "last_checked"
 ]
 
 TERMINAL = {
-    "STOP", "TP3", "UNCLEAR",
-    "TP1_THEN_STOP", "TP2_THEN_STOP"
+    "TP2",
+    "STOP",
+    "UNCLEAR"
 }
 
+# Bekannte Meme-Coins.
+# Kann später erweitert werden.
+MEME_BASES = {
+    "DOGE",
+    "SHIB",
+    "PEPE",
+    "BONK",
+    "FLOKI",
+    "WIF",
+    "BOME",
+    "MEME",
+    "TURBO",
+    "NEIRO",
+    "BRETT",
+    "MOG",
+    "POPCAT",
+    "MEW",
+    "PONKE",
+    "SLERF",
+    "BABYDOGE",
+    "DOGS",
+    "CAT",
+    "HIPPO",
+    "PNUT",
+    "GOAT",
+    "ACT",
+    "MOODENG",
+    "TRUMP",
+    "MELANIA"
+}
+
+STABLE_BASES = {
+    "USDT",
+    "USDC",
+    "DAI",
+    "FDUSD",
+    "TUSD",
+    "USDE",
+    "PYUSD",
+    "USDS",
+    "BUSD",
+    "USD0",
+    "FRAX"
+}
+
+
+# ============================================================
+# HELPERS
+# ============================================================
 
 def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def num(x):
-    return format(float(x), ".12g")
+def num(value):
+    return format(float(value), ".12g")
 
 
-def flt(x, default=0.0):
+def flt(value, default=0.0):
     try:
-        return float(x)
+        return float(value)
     except Exception:
         return default
 
 
-# =========================================================
+# ============================================================
 # TELEGRAM
-# =========================================================
+#
+# WICHTIG:
+# Diese Funktion wird ausschließlich bei einem NEUEN
+# bestätigten V3-Setup aufgerufen.
+#
+# Keine Statusmeldungen.
+# Keine alten Strategien.
+# Keine Startmeldung.
+# Keine TP-/SL-Meldungen.
+# ============================================================
 
 def telegram(text):
+
     if not TOKEN or not CHAT_ID:
-        print("Telegram: Secrets fehlen")
+        print("Telegram Secrets fehlen")
         return False
 
     try:
+
         data = urllib.parse.urlencode({
             "chat_id": CHAT_ID,
             "text": text,
             "disable_web_page_preview": "true"
         }).encode()
 
-        req = urllib.request.Request(
+        request = urllib.request.Request(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
             data=data,
-            headers={"User-Agent": "CryptoScanner/V2.1"}
+            headers={
+                "User-Agent": "CryptoScanner/V3"
+            }
         )
 
-        with urllib.request.urlopen(req, timeout=20) as r:
-            result = json.loads(r.read().decode())
+        with urllib.request.urlopen(
+            request,
+            timeout=20
+        ) as response:
+
+            result = json.loads(
+                response.read().decode()
+            )
 
         if not result.get("ok"):
             raise RuntimeError(result)
 
-        print("Telegram: Nachricht gesendet")
+        print(
+            "Telegram: neues V3-Setup gesendet"
+        )
+
         return True
 
-    except Exception as e:
-        print("TELEGRAM ERROR:", e)
+    except Exception as error:
+
+        print(
+            "Telegram Fehler:",
+            error
+        )
+
         return False
 
 
-# =========================================================
-# OKX
-# =========================================================
+# ============================================================
+# OKX API
+# ============================================================
 
 def api(path, params=None):
-    if params:
-        path += "?" + urllib.parse.urlencode(params)
 
-    req = urllib.request.Request(
+    if params:
+        path += "?" + urllib.parse.urlencode(
+            params
+        )
+
+    request = urllib.request.Request(
         BASE + path,
-        headers={"User-Agent": "Mozilla/5.0 CryptoScanner/V2.1"}
+        headers={
+            "User-Agent":
+                "Mozilla/5.0 CryptoScanner/V3"
+        }
     )
 
-    with urllib.request.urlopen(req, timeout=20) as r:
-        obj = json.loads(r.read().decode())
+    with urllib.request.urlopen(
+        request,
+        timeout=20
+    ) as response:
 
-    if obj.get("code") != "0":
-        raise RuntimeError(obj)
+        result = json.loads(
+            response.read().decode()
+        )
 
-    return obj.get("data", [])
+    if result.get("code") != "0":
+        raise RuntimeError(result)
 
+    return result.get("data", [])
+
+
+# ============================================================
+# MARKETS
+# ============================================================
 
 def markets():
+
     instruments = api(
         "/api/v5/public/instruments",
-        {"instType": "SWAP"}
+        {
+            "instType": "SWAP"
+        }
     )
 
     tickers = api(
         "/api/v5/market/tickers",
-        {"instType": "SWAP"}
+        {
+            "instType": "SWAP"
+        }
     )
 
-    vols = {
-        x.get("instId", ""): flt(x.get("volCcy24h"))
-        for x in tickers
+    volumes = {
+        ticker.get("instId", ""):
+            flt(ticker.get("volCcy24h"))
+        for ticker in tickers
     }
 
-    excluded = {
-        "USDT", "USDC", "DAI", "FDUSD",
-        "TUSD", "USDE", "PYUSD", "USDS", "BUSD"
-    }
+    selected = []
 
-    out = []
+    for instrument in instruments:
 
-    for x in instruments:
-        symbol = x.get("instId", "")
-        base = symbol.split("-")[0] if symbol else ""
+        symbol = instrument.get(
+            "instId",
+            ""
+        )
 
-        if (
-            x.get("state") == "live"
-            and symbol.endswith("-USDT-SWAP")
-            and base not in excluded
+        if not symbol.endswith(
+            "-USDT-SWAP"
         ):
-            out.append((symbol, vols.get(symbol, 0)))
+            continue
 
-    out.sort(key=lambda x: x[1], reverse=True)
+        if instrument.get(
+            "state"
+        ) != "live":
+            continue
 
-    return [x[0] for x in out[:MAX_MARKETS]]
+        base = symbol.split("-")[0]
+
+        if base in STABLE_BASES:
+            continue
+
+        if base in MEME_BASES:
+            continue
+
+        volume = volumes.get(
+            symbol,
+            0
+        )
+
+        # Märkte ohne brauchbares Volumen ignorieren
+        if volume <= 0:
+            continue
+
+        selected.append(
+            (
+                symbol,
+                volume
+            )
+        )
+
+    # Liquideste zuerst
+    selected.sort(
+        key=lambda item: item[1],
+        reverse=True
+    )
+
+    return [
+        item[0]
+        for item in selected[
+            :MAX_MARKETS
+        ]
+    ]
 
 
-def candles(symbol, bar, limit=120):
+# ============================================================
+# CANDLES
+# ============================================================
+
+def candles(
+    symbol,
+    bar="15m",
+    limit=120
+):
+
     raw = api(
         "/api/v5/market/candles",
         {
@@ -150,617 +317,869 @@ def candles(symbol, bar, limit=120):
         }
     )
 
-    out = []
+    output = []
 
-    for x in reversed(raw):
+    for candle in reversed(raw):
 
         # Nur abgeschlossene Kerzen
-        if len(x) > 8 and x[8] != "1":
+        if (
+            len(candle) > 8
+            and candle[8] != "1"
+        ):
             continue
 
-        out.append({
-            "ts": int(x[0]),
-            "open": float(x[1]),
-            "high": float(x[2]),
-            "low": float(x[3]),
-            "close": float(x[4]),
-            "volume": float(x[5])
+        output.append({
+            "ts": int(candle[0]),
+            "open": float(candle[1]),
+            "high": float(candle[2]),
+            "low": float(candle[3]),
+            "close": float(candle[4]),
+            "volume": float(candle[5])
         })
 
-    return out
+    return output
 
 
-# =========================================================
-# INDIKATOREN
-# =========================================================
+# ============================================================
+# RSI
+# ============================================================
 
-def ema(values, period):
-    if not values:
+def rsi_series(
+    closes,
+    period=14
+):
+
+    if len(closes) < period + 2:
         return []
 
-    alpha = 2 / (period + 1)
-    out = [values[0]]
-
-    for value in values[1:]:
-        out.append(
-            alpha * value
-            + (1 - alpha) * out[-1]
-        )
-
-    return out
-
-
-def rsi(values, period=14):
-    if len(values) < period + 2:
-        return None
+    values = [
+        None
+    ] * len(closes)
 
     gains = []
     losses = []
 
-    for i in range(1, len(values)):
-        change = values[i] - values[i - 1]
+    for i in range(
+        1,
+        period + 1
+    ):
 
-        gains.append(max(change, 0.0))
-        losses.append(max(-change, 0.0))
+        change = (
+            closes[i]
+            - closes[i - 1]
+        )
 
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-
-    for i in range(period, len(gains)):
-        avg_gain = (
-            avg_gain * (period - 1)
-            + gains[i]
-        ) / period
-
-        avg_loss = (
-            avg_loss * (period - 1)
-            + losses[i]
-        ) / period
-
-    if avg_loss == 0:
-        return 100.0
-
-    rs = avg_gain / avg_loss
-
-    return 100 - 100 / (1 + rs)
-
-
-def atr(data, period=14):
-    if len(data) < 2:
-        return 0
-
-    tr = []
-
-    for i in range(1, len(data)):
-        tr.append(
+        gains.append(
             max(
-                data[i]["high"] - data[i]["low"],
-                abs(
-                    data[i]["high"]
-                    - data[i - 1]["close"]
-                ),
-                abs(
-                    data[i]["low"]
-                    - data[i - 1]["close"]
-                )
+                change,
+                0
             )
         )
 
-    values = tr[-period:]
+        losses.append(
+            max(
+                -change,
+                0
+            )
+        )
 
-    return (
-        sum(values) / len(values)
-        if values
-        else 0
+    avg_gain = (
+        sum(gains)
+        / period
     )
 
+    avg_loss = (
+        sum(losses)
+        / period
+    )
 
-def avgvol(data, period=20):
-    values = [
-        x["volume"]
-        for x in data[-period:]
+    if avg_loss == 0:
+        values[period] = 100.0
+
+    else:
+
+        rs = (
+            avg_gain
+            / avg_loss
+        )
+
+        values[period] = (
+            100
+            - 100 / (
+                1 + rs
+            )
+        )
+
+    for i in range(
+        period + 1,
+        len(closes)
+    ):
+
+        change = (
+            closes[i]
+            - closes[i - 1]
+        )
+
+        gain = max(
+            change,
+            0
+        )
+
+        loss = max(
+            -change,
+            0
+        )
+
+        avg_gain = (
+            avg_gain
+            * (period - 1)
+            + gain
+        ) / period
+
+        avg_loss = (
+            avg_loss
+            * (period - 1)
+            + loss
+        ) / period
+
+        if avg_loss == 0:
+
+            values[i] = 100.0
+
+        else:
+
+            rs = (
+                avg_gain
+                / avg_loss
+            )
+
+            values[i] = (
+                100
+                - 100 / (
+                    1 + rs
+                )
+            )
+
+    return values
+
+
+# ============================================================
+# ATR
+# ============================================================
+
+def atr(
+    data,
+    period=14
+):
+
+    if len(data) < 2:
+        return 0
+
+    true_ranges = []
+
+    for i in range(
+        1,
+        len(data)
+    ):
+
+        current = data[i]
+        previous = data[i - 1]
+
+        true_range = max(
+
+            current["high"]
+            - current["low"],
+
+            abs(
+                current["high"]
+                - previous["close"]
+            ),
+
+            abs(
+                current["low"]
+                - previous["close"]
+            )
+        )
+
+        true_ranges.append(
+            true_range
+        )
+
+    values = true_ranges[
+        -period:
     ]
 
+    if not values:
+        return 0
+
     return (
-        sum(values) / len(values)
-        if values
-        else 0
+        sum(values)
+        / len(values)
     )
 
 
-# =========================================================
-# CANDLE PATTERNS
-# =========================================================
+# ============================================================
+# CANDLE HELPERS
+# ============================================================
 
-def body(c):
+def body(candle):
+
     return abs(
-        c["close"] - c["open"]
+        candle["close"]
+        - candle["open"]
     )
 
 
-def candle_range(c):
+def candle_range(candle):
+
     return max(
-        c["high"] - c["low"],
+        candle["high"]
+        - candle["low"],
         1e-12
     )
 
 
-def lower_wick(c):
+def upper_wick(candle):
+
     return (
-        min(c["open"], c["close"])
-        - c["low"]
+        candle["high"]
+        - max(
+            candle["open"],
+            candle["close"]
+        )
     )
 
 
-def upper_wick(c):
+def lower_wick(candle):
+
     return (
-        c["high"]
-        - max(c["open"], c["close"])
+        min(
+            candle["open"],
+            candle["close"]
+        )
+        - candle["low"]
     )
 
 
-def bull(c):
-    return c["close"] > c["open"]
+def bullish(candle):
 
-
-def bear(c):
-    return c["close"] < c["open"]
-
-
-def bull_engulf(previous, current):
     return (
-        bear(previous)
-        and bull(current)
-        and current["open"] <= previous["close"]
-        and current["close"] >= previous["open"]
+        candle["close"]
+        > candle["open"]
     )
 
 
-def bear_engulf(previous, current):
+def bearish(candle):
+
     return (
-        bull(previous)
-        and bear(current)
-        and current["open"] >= previous["close"]
-        and current["close"] <= previous["open"]
+        candle["close"]
+        < candle["open"]
     )
 
 
-def bull_reject(c):
+# ============================================================
+# HAMMER / PINBAR
+# ============================================================
+
+def bullish_hammer(candle):
+
+    rng = candle_range(
+        candle
+    )
+
+    b = body(
+        candle
+    )
+
     return (
-        lower_wick(c)
+        lower_wick(candle)
         >= max(
-            body(c) * 1.5,
-            candle_range(c) * 0.30
+            b * 2,
+            rng * 0.40
         )
-        and c["close"]
-        >= c["low"] + candle_range(c) * 0.60
+        and
+        upper_wick(candle)
+        <= rng * 0.25
+        and
+        candle["close"]
+        >= candle["low"]
+        + rng * 0.60
     )
 
 
-def bear_reject(c):
+def bearish_hammer(candle):
+
+    rng = candle_range(
+        candle
+    )
+
+    b = body(
+        candle
+    )
+
     return (
-        upper_wick(c)
+        upper_wick(candle)
         >= max(
-            body(c) * 1.5,
-            candle_range(c) * 0.30
+            b * 2,
+            rng * 0.40
         )
-        and c["close"]
-        <= c["low"] + candle_range(c) * 0.40
+        and
+        lower_wick(candle)
+        <= rng * 0.25
+        and
+        candle["close"]
+        <= candle["low"]
+        + rng * 0.40
     )
 
 
-def bull_outside(previous, current):
-    return (
-        current["high"] > previous["high"]
-        and current["low"] < previous["low"]
-        and bull(current)
-    )
+# ============================================================
+# ENGULFING
+# ============================================================
 
-
-def bear_outside(previous, current):
-    return (
-        current["high"] > previous["high"]
-        and current["low"] < previous["low"]
-        and bear(current)
-    )
-
-
-def displacement(data, side):
-    if len(data) < 10:
-        return False
-
-    average_body = (
-        sum(
-            body(x)
-            for x in data[-10:-1]
-        ) / 9
-    )
-
-    if average_body <= 0:
-        return False
-
-    current = data[-1]
-
-    if side == "LONG":
-        return (
-            bull(current)
-            and body(current)
-            >= average_body * 1.5
-        )
+def bullish_engulfing(
+    previous,
+    current
+):
 
     return (
-        bear(current)
-        and body(current)
-        >= average_body * 1.5
+        bearish(previous)
+        and bullish(current)
+        and
+        current["open"]
+        <= previous["close"]
+        and
+        current["close"]
+        >= previous["open"]
     )
 
 
-# =========================================================
-# 1H TREND
-# =========================================================
+def bearish_engulfing(
+    previous,
+    current
+):
 
-def trend_1h(data):
-    if len(data) < 60:
-        return "NEUTRAL"
+    return (
+        bullish(previous)
+        and bearish(current)
+        and
+        current["open"]
+        >= previous["close"]
+        and
+        current["close"]
+        <= previous["open"]
+    )
 
-    closes = [
-        x["close"]
-        for x in data
+
+# ============================================================
+# VOLUME
+# ============================================================
+
+def average_volume(
+    data,
+    period=20
+):
+
+    values = [
+        candle["volume"]
+        for candle in data[
+            -period:
+        ]
     ]
 
-    e20 = ema(closes, 20)
-    e50 = ema(closes, 50)
+    if not values:
+        return 0
 
-    # V2.1:
-    # Trend bleibt Pflicht.
-    # Der zusätzliche harte HH/HL bzw.
-    # LH/LL-Filter aus V2 wurde entfernt.
-
-    if (
-        closes[-1] > e20[-1] > e50[-1]
-        and e20[-1] > e20[-5]
-    ):
-        return "LONG"
-
-    if (
-        closes[-1] < e20[-1] < e50[-1]
-        and e20[-1] < e20[-5]
-    ):
-        return "SHORT"
-
-    return "NEUTRAL"
-
-
-# =========================================================
-# 30M SETUP
-# =========================================================
-
-def setup_30m(data, side):
-    if len(data) < 30:
-        return None
-
-    current = data[-1]
-    previous = data[-2]
-
-    history = data[-22:-2]
-
-    resistance = max(
-        x["high"]
-        for x in history
+    return (
+        sum(values)
+        / len(values)
     )
 
-    support = min(
-        x["low"]
-        for x in history
-    )
 
-    a = atr(data)
-
-    if a <= 0:
-        return None
-
-    tolerance = a * 0.35
-
-    average_volume = avgvol(data[:-1])
-
-    volume_ratio = (
-        current["volume"] / average_volume
-        if average_volume
-        else 0
-    )
-
-    # LONG
-    if side == "LONG":
-
-        retest = (
-            previous["close"] > resistance
-            and resistance - tolerance
-            <= current["low"]
-            <= resistance + tolerance
-            and current["close"] > resistance
-            and bull(current)
-            and (
-                bull_reject(current)
-                or bull_engulf(
-                    previous,
-                    current
-                )
-            )
-        )
-
-        breakout = (
-            current["close"] > resistance
-            and bull(current)
-            and volume_ratio >= 0.75
-        )
-
-        if retest:
-            return "30m Breakout + Retest"
-
-        if breakout:
-            return "30m bestätigter Breakout"
-
-    # SHORT
-    if side == "SHORT":
-
-        retest = (
-            previous["close"] < support
-            and support - tolerance
-            <= current["high"]
-            <= support + tolerance
-            and current["close"] < support
-            and bear(current)
-            and (
-                bear_reject(current)
-                or bear_engulf(
-                    previous,
-                    current
-                )
-            )
-        )
-
-        breakdown = (
-            current["close"] < support
-            and bear(current)
-            and volume_ratio >= 0.85
-        )
-
-        if retest:
-            return "30m Breakdown + Retest"
-
-        if breakdown:
-            return "30m bestätigter Breakdown"
-
-    return None
-
-
-# =========================================================
-# 15M TRIGGER
-# =========================================================
-
-def trigger_15m(data, side):
-    if len(data) < 30:
-        return None
-
-    current = data[-1]
-    previous = data[-2]
-
-    recent = data[-8:-1]
-
-    r = rsi(
-        [x["close"] for x in data],
-        14
-    )
-
-    if r is None:
-        return None
-
-    average_volume = avgvol(
-        data[:-1]
-    )
-
-    volume_ratio = (
-        current["volume"] / average_volume
-        if average_volume
-        else 0
-    )
-
-    if side == "LONG":
-
-        pattern = (
-            bull_engulf(previous, current)
-            or bull_reject(current)
-            or bull_outside(previous, current)
-            or displacement(data, "LONG")
-        )
-
-        structure_break = (
-            current["close"]
-            > max(
-                x["high"]
-                for x in recent
-            )
-        )
-
-        if (
-            pattern
-            and structure_break
-            and 45 <= r <= 72
-            and volume_ratio >= 0.65
-        ):
-            return (
-                "Bullische 15m-Bestätigung"
-                " + Strukturbruch"
-                f" + RSI {r:.1f}"
-                f" + Volumen {volume_ratio:.2f}x"
-            )
-
-    else:
-
-        pattern = (
-            bear_engulf(previous, current)
-            or bear_reject(current)
-            or bear_outside(previous, current)
-            or displacement(data, "SHORT")
-        )
-
-        structure_break = (
-            current["close"]
-            < min(
-                x["low"]
-                for x in recent
-            )
-        )
-
-        if (
-            pattern
-            and structure_break
-            and 28 <= r <= 55
-            and volume_ratio >= 0.75
-        ):
-            return (
-                "Bärische 15m-Bestätigung"
-                " + Strukturbruch"
-                f" + RSI {r:.1f}"
-                f" + Volumen {volume_ratio:.2f}x"
-            )
-
-    return None
-
-
-# =========================================================
-# TRADE
-# =========================================================
-
-def trade(
-    symbol,
-    side,
-    setup,
-    trigger,
+def volume_confirmation(
     data
 ):
 
+    if len(data) < 22:
+        return False
+
+    current = data[-1]
+
+    avg = average_volume(
+        data[:-1],
+        20
+    )
+
+    if avg <= 0:
+        return False
+
+    return (
+        current["volume"]
+        >= avg * 1.20
+    )
+
+
+# ============================================================
+# CLOSE ABOVE / BELOW PREVIOUS CANDLE
+# ============================================================
+
+def close_above_previous(
+    previous,
+    current
+):
+
+    return (
+        bullish(current)
+        and
+        current["close"]
+        > previous["high"]
+    )
+
+
+def close_below_previous(
+    previous,
+    current
+):
+
+    return (
+        bearish(current)
+        and
+        current["close"]
+        < previous["low"]
+    )
+
+
+# ============================================================
+# FIND EXTREME RSI
+#
+# Wir schauen nicht nur auf die aktuelle Kerze.
+#
+# Beispiel LONG:
+# RSI war innerhalb der letzten Kerzen <=25.
+# Danach warten wir auf Umkehrbestätigung.
+# ============================================================
+
+def recent_extreme(
+    rsi_values,
+    side,
+    lookback=8
+):
+
+    recent = [
+        value
+        for value in rsi_values[
+            -lookback:
+        ]
+        if value is not None
+    ]
+
+    if not recent:
+        return None
+
+    if side == "LONG":
+
+        extreme = min(
+            recent
+        )
+
+        if extreme <= RSI_OVERSOLD:
+            return extreme
+
+    else:
+
+        extreme = max(
+            recent
+        )
+
+        if extreme >= RSI_OVERBOUGHT:
+            return extreme
+
+    return None
+
+
+# ============================================================
+# V3 SETUP
+# ============================================================
+
+def find_setup(data):
+
+    if len(data) < 40:
+        return None
+
+    current = data[-1]
+    previous = data[-2]
+
+    closes = [
+        candle["close"]
+        for candle in data
+    ]
+
+    rsis = rsi_series(
+        closes,
+        RSI_PERIOD
+    )
+
+    # --------------------------------------------------------
+    # LONG:
+    # Markt war extrem überverkauft.
+    # Danach bullish confirmation.
+    # --------------------------------------------------------
+
+    long_rsi = recent_extreme(
+        rsis,
+        "LONG"
+    )
+
+    if long_rsi is not None:
+
+        hammer = bullish_hammer(
+            current
+        )
+
+        engulfing = (
+            bullish_engulfing(
+                previous,
+                current
+            )
+        )
+
+        close_confirm = (
+            close_above_previous(
+                previous,
+                current
+            )
+        )
+
+        volume = (
+            volume_confirmation(
+                data
+            )
+        )
+
+        # Mindestens ein echter Price-Action Trigger.
+        price_confirmation = (
+            hammer
+            or engulfing
+            or close_confirm
+        )
+
+        if price_confirmation:
+
+            reasons = []
+
+            if hammer:
+                reasons.append(
+                    "Bullish Hammer"
+                )
+
+            if engulfing:
+                reasons.append(
+                    "Bullish Engulfing"
+                )
+
+            if close_confirm:
+                reasons.append(
+                    "Close über vorherigem Hoch"
+                )
+
+            if volume:
+                reasons.append(
+                    "Volumen bestätigt"
+                )
+
+            return {
+                "side": "LONG",
+                "extreme_rsi": long_rsi,
+                "trigger":
+                    " + ".join(
+                        reasons
+                    )
+            }
+
+    # --------------------------------------------------------
+    # SHORT:
+    # Markt war extrem überkauft.
+    # Danach bearish confirmation.
+    # --------------------------------------------------------
+
+    short_rsi = recent_extreme(
+        rsis,
+        "SHORT"
+    )
+
+    if short_rsi is not None:
+
+        hammer = bearish_hammer(
+            current
+        )
+
+        engulfing = (
+            bearish_engulfing(
+                previous,
+                current
+            )
+        )
+
+        close_confirm = (
+            close_below_previous(
+                previous,
+                current
+            )
+        )
+
+        volume = (
+            volume_confirmation(
+                data
+            )
+        )
+
+        price_confirmation = (
+            hammer
+            or engulfing
+            or close_confirm
+        )
+
+        if price_confirmation:
+
+            reasons = []
+
+            if hammer:
+                reasons.append(
+                    "Bearish Pinbar"
+                )
+
+            if engulfing:
+                reasons.append(
+                    "Bearish Engulfing"
+                )
+
+            if close_confirm:
+                reasons.append(
+                    "Close unter vorherigem Tief"
+                )
+
+            if volume:
+                reasons.append(
+                    "Volumen bestätigt"
+                )
+
+            return {
+                "side": "SHORT",
+                "extreme_rsi": short_rsi,
+                "trigger":
+                    " + ".join(
+                        reasons
+                    )
+            }
+
+    return None
+
+
+# ============================================================
+# CREATE TRADE
+# ============================================================
+
+def create_trade(
+    symbol,
+    setup,
+    data
+):
+
+    side = setup["side"]
+
     entry = data[-1]["close"]
 
-    a = atr(data)
+    a = atr(
+        data,
+        14
+    )
 
     if a <= 0:
         return None
 
+    # Lokale Struktur
     recent = data[-8:]
 
     if side == "LONG":
 
-        stop = min(
-            min(
-                x["low"]
-                for x in recent
-            ) - a * 0.10,
-            entry - a * 0.80
+        swing = min(
+            candle["low"]
+            for candle in recent
         )
 
-        risk = entry - stop
+        stop = (
+            swing
+            - a * ATR_STOP_BUFFER
+        )
+
+        risk = (
+            entry
+            - stop
+        )
 
         if risk <= 0:
             return None
 
-        tp1 = entry + risk * 1.25
-        tp2 = entry + risk * 2
-        tp3 = entry + risk * 3
+        target = (
+            entry
+            + risk * RR
+        )
 
     else:
 
-        stop = max(
-            max(
-                x["high"]
-                for x in recent
-            ) + a * 0.10,
-            entry + a * 0.80
+        swing = max(
+            candle["high"]
+            for candle in recent
         )
 
-        risk = stop - entry
+        stop = (
+            swing
+            + a * ATR_STOP_BUFFER
+        )
+
+        risk = (
+            stop
+            - entry
+        )
 
         if risk <= 0:
             return None
 
-        tp1 = entry - risk * 1.25
-        tp2 = entry - risk * 2
-        tp3 = entry - risk * 3
+        target = (
+            entry
+            - risk * RR
+        )
 
     timestamp = now()
 
     return {
-        "time": timestamp,
-        "strategy": STRATEGY,
-        "symbol": symbol,
-        "side": side,
-        "timeframe": "1h/30m/15m",
-        "setup_type": setup,
-        "entry": num(entry),
-        "stop": num(stop),
-        "tp1": num(tp1),
-        "tp2": num(tp2),
-        "tp3": num(tp3),
-        "planned_rr": "3R TP3",
-        "trigger": trigger,
-        "status": "OPEN",
-        "last_checked": timestamp
+
+        "time":
+            timestamp,
+
+        "strategy":
+            STRATEGY,
+
+        "symbol":
+            symbol,
+
+        "side":
+            side,
+
+        "timeframe":
+            "15m",
+
+        "setup_type":
+            "RSI Extreme Mean Reversion",
+
+        "entry":
+            num(entry),
+
+        "stop":
+            num(stop),
+
+        # TP1 bleibt leer.
+        "tp1":
+            "",
+
+        # Unser einziges Ziel:
+        # TP = 2R
+        "tp2":
+            num(target),
+
+        "tp3":
+            "",
+
+        "planned_rr":
+            "1:2",
+
+        "trigger":
+            (
+                f"RSI Extrem "
+                f"{setup['extreme_rsi']:.1f}"
+                f" | "
+                f"{setup['trigger']}"
+            ),
+
+        "status":
+            "OPEN",
+
+        "last_checked":
+            timestamp
     }
 
 
-# =========================================================
+# ============================================================
 # JOURNAL
-# =========================================================
+# ============================================================
 
 def load():
-    if not os.path.exists(JOURNAL):
+
+    if not os.path.exists(
+        JOURNAL
+    ):
         return []
 
     with open(
         JOURNAL,
         newline="",
         encoding="utf-8"
-    ) as f:
+    ) as file:
+
         rows = list(
-            csv.DictReader(f)
+            csv.DictReader(
+                file
+            )
         )
 
+    # Alte Daten bleiben erhalten.
     for row in rows:
-        if not row.get("strategy"):
-            row["strategy"] = "CURRENT"
+
+        if not row.get(
+            "strategy"
+        ):
+            row[
+                "strategy"
+            ] = "CURRENT"
 
     return rows
 
 
 def save(rows):
+
     with open(
         JOURNAL,
         "w",
         newline="",
         encoding="utf-8"
-    ) as f:
+    ) as file:
 
         writer = csv.DictWriter(
-            f,
+            file,
             fieldnames=FIELDS
         )
 
         writer.writeheader()
 
         for row in rows:
+
             writer.writerow({
-                key: row.get(key, "")
-                for key in FIELDS
+                field:
+                    row.get(
+                        field,
+                        ""
+                    )
+                for field
+                in FIELDS
             })
 
 
-def strategy_rows(rows):
-    return [
-        row
-        for row in rows
-        if row.get("strategy") == STRATEGY
-    ]
-
+# ============================================================
+# DUPLICATE
+#
+# Nur V3 zählt.
+# Alte Strategien sind irrelevant.
+# ============================================================
 
 def duplicate(
     rows,
@@ -769,221 +1188,122 @@ def duplicate(
 ):
 
     return any(
-        row.get("strategy") == STRATEGY
-        and row.get("symbol") == symbol
-        and row.get("side") == side
-        and row.get("status")
-        in {"OPEN", "TP1", "TP2"}
+
+        row.get(
+            "strategy"
+        ) == STRATEGY
+
+        and
+
+        row.get(
+            "symbol"
+        ) == symbol
+
+        and
+
+        row.get(
+            "side"
+        ) == side
+
+        and
+
+        row.get(
+            "status"
+        ) == "OPEN"
+
         for row in rows
     )
 
 
-# =========================================================
-# STATISTIK
-# =========================================================
+# ============================================================
+# UPDATE V3 JOURNAL
+#
+# EXTREM WICHTIG:
+#
+# Hier wird KEIN Telegram aufgerufen.
+#
+# Alte Strategien werden komplett ignoriert.
+#
+# Status wird nur still im CSV aktualisiert.
+# ============================================================
 
-def test_stats(rows):
+def update_v3_journal(rows):
 
-    test = strategy_rows(rows)
-
-    completed = [
-        row
-        for row in test
-        if row.get("status")
-        in TERMINAL
-    ]
-
-    tp3 = [
-        row
-        for row in completed
-        if row.get("status") == "TP3"
-    ]
-
-    rate = (
-        len(tp3)
-        / len(completed)
-        * 100
-        if completed
-        else 0
-    )
-
-    return {
-        "total": len(test),
-
-        "completed":
-            len(completed),
-
-        "open":
-            len(test)
-            - len(completed),
-
-        "tp3":
-            len(tp3),
-
-        "stop":
-            sum(
-                row.get("status")
-                == "STOP"
-                for row in completed
-            ),
-
-        "partial":
-            sum(
-                row.get("status")
-                in {
-                    "TP1_THEN_STOP",
-                    "TP2_THEN_STOP"
-                }
-                for row in completed
-            ),
-
-        "unclear":
-            sum(
-                row.get("status")
-                == "UNCLEAR"
-                for row in completed
-            ),
-
-        "rate":
-            rate
-    }
-
-
-# =========================================================
-# NEUES V2.1 SIGNAL
-# =========================================================
-
-def notify_trade(
-    trade_data,
-    trade_number
-):
-
-    direction = (
-        "🟢 LONG"
-        if trade_data["side"] == "LONG"
-        else "🔴 SHORT"
-    )
-
-    telegram(
-        f"🚨 NEUES V2.1-SIGNAL "
-        f"— {trade_number}/{TEST_LIMIT}\n\n"
-
-        f"Paar: {trade_data['symbol']}\n"
-        f"Richtung: {direction}\n"
-        f"Zeitrahmen: "
-        f"{trade_data['timeframe']}\n"
-
-        f"Setup: "
-        f"{trade_data['setup_type']}\n"
-
-        f"Bestätigung: "
-        f"{trade_data['trigger']}\n\n"
-
-        f"Einstieg: "
-        f"{trade_data['entry']}\n"
-
-        f"Stop-Loss: "
-        f"{trade_data['stop']}\n"
-
-        f"Ziel 1: "
-        f"{trade_data['tp1']}\n"
-
-        f"Ziel 2: "
-        f"{trade_data['tp2']}\n"
-
-        f"Ziel 3: "
-        f"{trade_data['tp3']}\n"
-
-        f"TP3-Ziel: 3R"
-    )
-
-
-# =========================================================
-# STATUS-UPDATE
-# NUR V2.1 !!!
-# =========================================================
-
-def update_journal(rows):
-
-    changes = []
+    changed = 0
 
     for row in rows:
 
-        # ---------------------------------------------
-        # ENTSCHEIDENDE ÄNDERUNG:
-        #
-        # CURRENT
-        # CREAMER_CRYPTO
-        # V2
-        #
-        # werden komplett ignoriert.
-        #
-        # Nur V2.1 darf Telegram-Nachrichten erzeugen.
-        # ---------------------------------------------
-
-        if row.get("strategy") != STRATEGY:
+        # Alte Scanner komplett ignorieren.
+        if (
+            row.get("strategy")
+            != STRATEGY
+        ):
             continue
 
         if (
-            row.get("status") in TERMINAL
-            or row.get("status")
-            not in {"OPEN", "TP1", "TP2"}
+            row.get("status")
+            != "OPEN"
         ):
             continue
 
         try:
 
-            start = int(
+            signal_time = int(
+
                 datetime.fromisoformat(
+
                     row["time"].replace(
                         "Z",
                         "+00:00"
                     )
-                ).timestamp() * 1000
+
+                ).timestamp()
+
+                * 1000
             )
 
-            data = [
+            data = candles(
+                row["symbol"],
+                "15m",
+                100
+            )
+
+            relevant = [
+
                 candle
-                for candle in candles(
-                    row["symbol"],
-                    "15m",
-                    100
-                )
-                if candle["ts"] > start
+
+                for candle in data
+
+                if candle["ts"]
+                > signal_time
             ]
 
-            old_status = row["status"]
-
-            progress = {
-                "OPEN": 0,
-                "TP1": 1,
-                "TP2": 2
-            }.get(
-                old_status,
-                0
+            stop = flt(
+                row["stop"]
             )
 
-            stop = flt(row["stop"])
-            tp1 = flt(row["tp1"])
-            tp2 = flt(row["tp2"])
-            tp3 = flt(row["tp3"])
+            target = flt(
+                row["tp2"]
+            )
 
-            status = old_status
+            status = "OPEN"
 
-            for candle in data:
+            for candle in relevant:
 
-                if row["side"] == "LONG":
+                if (
+                    row["side"]
+                    == "LONG"
+                ):
 
                     stop_hit = (
                         candle["low"]
                         <= stop
                     )
 
-                    hits = [
-                        candle["high"] >= tp1,
-                        candle["high"] >= tp2,
-                        candle["high"] >= tp3
-                    ]
+                    target_hit = (
+                        candle["high"]
+                        >= target
+                    )
 
                 else:
 
@@ -992,348 +1312,437 @@ def update_journal(rows):
                         >= stop
                     )
 
-                    hits = [
-                        candle["low"] <= tp1,
-                        candle["low"] <= tp2,
-                        candle["low"] <= tp3
-                    ]
+                    target_hit = (
+                        candle["low"]
+                        <= target
+                    )
 
-                highest = (
-                    3 if hits[2]
-                    else 2 if hits[1]
-                    else 1 if hits[0]
-                    else 0
-                )
-
-                # Stop und neues Ziel
-                # innerhalb derselben Kerze.
+                # Gleiche Kerze:
+                # Reihenfolge unbekannt.
                 if (
                     stop_hit
-                    and highest > progress
+                    and target_hit
                 ):
-                    status = "UNCLEAR"
+
+                    status = (
+                        "UNCLEAR"
+                    )
+
                     break
 
-                if highest > progress:
+                if target_hit:
 
-                    progress = highest
+                    status = "TP2"
 
-                    status = {
-                        1: "TP1",
-                        2: "TP2",
-                        3: "TP3"
-                    }[progress]
-
-                    if progress == 3:
-                        break
+                    break
 
                 if stop_hit:
 
-                    if progress == 0:
-                        status = "STOP"
-                    else:
-                        status = (
-                            f"TP{progress}"
-                            "_THEN_STOP"
-                        )
+                    status = "STOP"
 
                     break
 
-            row["status"] = status
-            row["last_checked"] = now()
+            if (
+                status
+                != row["status"]
+            ):
 
-            # Nur V2.1 kommt bis hier.
-            if status != old_status:
-
-                message = (
-                    "📌 V2.1 SIGNAL-UPDATE\n\n"
-                    f"Paar: {row['symbol']}\n"
-                    f"Richtung: {row['side']}\n"
-                    f"Status: "
-                    f"{old_status} → {status}"
+                print(
+                    "V3 Update:",
+                    row["symbol"],
+                    row["status"],
+                    "->",
+                    status
                 )
 
-                changes.append(message)
+                row["status"] = (
+                    status
+                )
 
-                telegram(message)
+                changed += 1
 
-        except Exception as e:
+            row[
+                "last_checked"
+            ] = now()
+
+        except Exception as error:
+
             print(
-                "Journal error",
-                row.get("symbol"),
-                e
+                "Journal Fehler:",
+                row.get(
+                    "symbol"
+                ),
+                error
             )
 
-        time.sleep(PAUSE)
+        time.sleep(
+            PAUSE
+        )
 
-    return changes
+    return changed
 
 
-# =========================================================
-# SCAN
-# =========================================================
+# ============================================================
+# TELEGRAM:
+# NUR NEUES SETUP
+# ============================================================
 
-def scan(symbol, rows):
+def notify_new_setup(
+    trade
+):
 
-    h1 = candles(
-        symbol,
-        "1H",
-        100
+    if (
+        trade["side"]
+        == "LONG"
+    ):
+
+        direction = (
+            "🟢 LONG"
+        )
+
+        market_state = (
+            "ÜBERVERKAUFT"
+        )
+
+    else:
+
+        direction = (
+            "🔴 SHORT"
+        )
+
+        market_state = (
+            "ÜBERKAUFT"
+        )
+
+    message = (
+
+        "🚨 NEUES V3 MEAN-REVERSION SETUP\n\n"
+
+        f"Paar: "
+        f"{trade['symbol']}\n"
+
+        f"Richtung: "
+        f"{direction}\n"
+
+        f"Markt: "
+        f"{market_state}\n"
+
+        f"Zeitrahmen: "
+        f"{trade['timeframe']}\n\n"
+
+        f"Bestätigung:\n"
+        f"{trade['trigger']}\n\n"
+
+        f"Entry: "
+        f"{trade['entry']}\n"
+
+        f"Stop-Loss: "
+        f"{trade['stop']}\n"
+
+        f"Take-Profit: "
+        f"{trade['tp2']}\n\n"
+
+        "Risk/Reward: 1:2"
     )
 
-    time.sleep(PAUSE)
-
-    m30 = candles(
-        symbol,
-        "30m",
-        120
+    # EINZIGER Telegram-Aufruf
+    # für den normalen Scanner.
+    telegram(
+        message
     )
 
-    time.sleep(PAUSE)
 
-    m15 = candles(
+# ============================================================
+# SCAN ONE MARKET
+# ============================================================
+
+def scan_market(
+    symbol,
+    rows
+):
+
+    data = candles(
         symbol,
         "15m",
         120
     )
 
-    side = trend_1h(h1)
-
-    if side not in {
-        "LONG",
-        "SHORT"
-    }:
-        return None
-
-    setup = setup_30m(
-        m30,
-        side
+    setup = find_setup(
+        data
     )
 
     if not setup:
         return None
 
-    trigger = trigger_15m(
-        m15,
-        side
-    )
-
-    if not trigger:
-        return None
-
     if duplicate(
         rows,
         symbol,
-        side
+        setup["side"]
     ):
         return None
 
-    return trade(
+    return create_trade(
         symbol,
-        side,
         setup,
-        trigger,
-        m15
+        data
     )
 
 
-# =========================================================
+# ============================================================
+# STATS
+# ============================================================
+
+def v3_stats(rows):
+
+    trades = [
+
+        row
+
+        for row in rows
+
+        if row.get(
+            "strategy"
+        ) == STRATEGY
+    ]
+
+    wins = [
+
+        row
+
+        for row in trades
+
+        if row.get(
+            "status"
+        ) == "TP2"
+    ]
+
+    losses = [
+
+        row
+
+        for row in trades
+
+        if row.get(
+            "status"
+        ) == "STOP"
+    ]
+
+    unclear = [
+
+        row
+
+        for row in trades
+
+        if row.get(
+            "status"
+        ) == "UNCLEAR"
+    ]
+
+    completed = (
+        len(wins)
+        + len(losses)
+    )
+
+    winrate = (
+
+        len(wins)
+        / completed
+        * 100
+
+        if completed
+
+        else 0
+    )
+
+    return {
+        "total":
+            len(trades),
+
+        "wins":
+            len(wins),
+
+        "losses":
+            len(losses),
+
+        "unclear":
+            len(unclear),
+
+        "completed":
+            completed,
+
+        "winrate":
+            winrate
+    }
+
+
+# ============================================================
 # MAIN
-# =========================================================
+# ============================================================
 
 def main():
 
     print(
-        "Crypto Scanner V2.1 gestartet"
+        "V3 Mean Reversion Scanner gestartet"
     )
 
     rows = load()
 
-    # Ausschließlich V2.1 wird
-    # weiter überwacht.
-    changes = update_journal(rows)
+    # Nur V3 wird still aktualisiert.
+    # KEINE Telegram-Meldung.
+    updates = update_v3_journal(
+        rows
+    )
 
     try:
+
         market_list = markets()
 
-    except Exception as e:
+    except Exception as error:
 
-        telegram(
-            "❌ V2.1 Scanner-Fehler: "
-            "Market-Liste nicht geladen\n"
-            f"{e}"
+        # KEIN Telegram.
+        # Nur GitHub Actions Log.
+        print(
+            "MARKET LIST ERROR:",
+            error
         )
 
         save(rows)
+
         raise
+
+    print(
+        "Geeignete Nicht-Meme/"
+        "Nicht-Stablecoin-Märkte:",
+        len(market_list)
+    )
 
     scanned = 0
     errors = 0
     new_signals = 0
 
-    # 100 neue V2.1-Signale maximal.
-    if (
-        len(strategy_rows(rows))
-        >= TEST_LIMIT
+    for index, symbol in enumerate(
+        market_list,
+        1
     ):
 
-        print(
-            "V2.1-Testlimit erreicht: "
-            "keine neuen Signale."
+        try:
+
+            trade = scan_market(
+                symbol,
+                rows
+            )
+
+            scanned += 1
+
+            if trade:
+
+                rows.append(
+                    trade
+                )
+
+                new_signals += 1
+
+                print(
+                    "NEW V3:",
+                    symbol,
+                    trade["side"],
+                    trade["trigger"]
+                )
+
+                # Telegram wirklich nur hier.
+                notify_new_setup(
+                    trade
+                )
+
+        except Exception as error:
+
+            errors += 1
+
+            print(
+                "SCAN ERROR:",
+                symbol,
+                error
+            )
+
+        if index % 25 == 0:
+
+            print(
+                "Progress:",
+                index,
+                "/",
+                len(
+                    market_list
+                )
+            )
+
+        time.sleep(
+            PAUSE
         )
 
-    else:
+    save(
+        rows
+    )
 
-        for i, symbol in enumerate(
-            market_list,
-            1
-        ):
-
-            if (
-                len(strategy_rows(rows))
-                >= TEST_LIMIT
-            ):
-                break
-
-            try:
-
-                found = scan(
-                    symbol,
-                    rows
-                )
-
-                scanned += 1
-
-                if found:
-
-                    rows.append(found)
-
-                    new_signals += 1
-
-                    trade_number = len(
-                        strategy_rows(rows)
-                    )
-
-                    print(
-                        f"NEW [V2.1]: "
-                        f"{symbol} "
-                        f"{found['side']} "
-                        f"#{trade_number}"
-                    )
-
-                    notify_trade(
-                        found,
-                        trade_number
-                    )
-
-            except Exception as e:
-
-                errors += 1
-
-                print(
-                    "ERROR",
-                    symbol,
-                    e
-                )
-
-            if i % 10 == 0:
-
-                print(
-                    f"Progress: "
-                    f"{i}/"
-                    f"{len(market_list)}"
-                )
-
-            time.sleep(PAUSE)
-
-    save(rows)
-
-    stats = test_stats(rows)
+    stats = v3_stats(
+        rows
+    )
 
     print(
-        "Successfully scanned:",
+        "--------------------------------"
+    )
+
+    print(
+        "V3 SCAN BEENDET"
+    )
+
+    print(
+        "Märkte geprüft:",
         scanned
     )
 
     print(
-        "Errors:",
+        "Fehler:",
         errors
     )
 
     print(
-        "Neue V2.1-Signale:",
+        "Neue V3 Signale:",
         new_signals
     )
 
     print(
-        "V2.1 total:",
+        "Journal Updates:",
+        updates
+    )
+
+    print(
+        "V3 Trades gesamt:",
         stats["total"]
     )
 
     print(
-        "V2.1 completed:",
-        stats["completed"]
+        "V3 Gewinner (2R):",
+        stats["wins"]
     )
 
     print(
-        "V2.1 TP3:",
-        stats["tp3"]
+        "V3 Verlierer:",
+        stats["losses"]
     )
 
     print(
-        "V2.1 TP3 rate:",
-        f'{stats["rate"]:.1f}%'
+        "V3 Unklar:",
+        stats["unclear"]
     )
 
-    # Nur bei manuellem GitHub-Start
-    # kommt zusätzlich eine Statusmeldung.
-    if (
-        os.environ.get(
-            "GITHUB_EVENT_NAME"
-        )
-        == "workflow_dispatch"
-    ):
+    print(
+        "V3 Winrate:",
+        f"{stats['winrate']:.1f}%"
+    )
 
-        telegram(
-            "✅ CRYPTO-SCANNER V2.1 AKTIV\n\n"
-
-            f"Märkte geprüft: "
-            f"{scanned}/"
-            f"{len(market_list)}\n"
-
-            f"Fehler: {errors}\n"
-
-            f"Neue V2.1-Signale: "
-            f"{new_signals}\n"
-
-            f"V2.1-Updates: "
-            f"{len(changes)}\n\n"
-
-            f"V2.1-Test: "
-            f"{stats['total']}/"
-            f"{TEST_LIMIT} Signale\n"
-
-            f"Abgeschlossen: "
-            f"{stats['completed']}\n"
-
-            f"Noch offen: "
-            f"{stats['open']}\n"
-
-            f"TP3 komplett: "
-            f"{stats['tp3']}\n"
-
-            f"Direkt Stop: "
-            f"{stats['stop']}\n"
-
-            f"Teilziel → Stop: "
-            f"{stats['partial']}\n"
-
-            f"Unklar: "
-            f"{stats['unclear']}\n"
-
-            f"TP3-Quote: "
-            f"{stats['rate']:.1f}%"
-        )
+    print(
+        "--------------------------------"
+    )
 
 
 if __name__ == "__main__":

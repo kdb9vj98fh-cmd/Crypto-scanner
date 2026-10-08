@@ -1,53 +1,40 @@
-name: Crypto Scanner
+name: V4 vs V10 Backtest
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "2,17,32,47 * * * *"
+    inputs:
+      days:
+        description: 'Historische Tage'
+        required: true
+        default: '30'
+      markets:
+        description: 'Anzahl Coins (erst 30, dann 100 oder 400)'
+        required: true
+        default: '30'
 
 permissions:
-  contents: write
-
-concurrency:
-  group: crypto-scanner
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  scan:
+  backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 14
-
+    timeout-minutes: 180
     steps:
       - name: Repository laden
         uses: actions/checkout@v4
-
       - name: Python einrichten
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
-      - name: Scanner starten
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scanner.py
-
-      - name: Journal speichern
-        run: |
-          if [ ! -f signals.csv ]; then
-            echo "Keine signals.csv vorhanden"
-            exit 0
-          fi
-
-          if git diff --quiet -- signals.csv && git diff --cached --quiet; then
-            echo "Keine Journal-Änderungen"
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add signals.csv
-          git commit -m "Update signal journal"
-          git pull --rebase
-          git push
+          python-version: '3.12'
+      - name: Backtest starten
+        run: python -u scanner.py --days '${{ inputs.days }}' --markets '${{ inputs.markets }}'
+      - name: Backtest-Ergebnisse speichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-ergebnisse
+          path: |
+            backtest_trades.csv
+            backtest_filters.csv
+          if-no-files-found: warn
+          retention-days: 30

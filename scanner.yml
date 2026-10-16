@@ -1,0 +1,54 @@
+name: Hammer-Scanner 15m
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  scanner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+
+    steps:
+      - name: Repository laden
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Python-Pakete installieren
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          else
+            python -m pip install requests httpx aiohttp pandas numpy ccxt
+          fi
+
+      - name: Hammer-Scanner starten
+        shell: bash
+        run: |
+          if [ -f Scanner.py ]; then
+            SCANNER_FILE="Scanner.py"
+          elif [ -f scanner.py ]; then
+            SCANNER_FILE="scanner.py"
+          else
+            echo '::error::Scanner.py oder scanner.py nicht gefunden.'
+            exit 1
+          fi
+          python -u "$SCANNER_FILE" --max-markets 400 --min-touches 2 --output-dir results
+
+      - name: Scanner-Ergebnisse speichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanner-ergebnisse
+          path: results/
+          if-no-files-found: ignore

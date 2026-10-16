@@ -1,0 +1,53 @@
+name: Hammer-Scanner 15m
+
+on:
+  workflow_dispatch:
+    inputs:
+      telegram_test:
+        description: 'Nur eine Telegram-Testnachricht senden (keine Marktabfrage)'
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    - cron: '*/15 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hammer-scanner-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  scanner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    env:
+      # Use your EXISTING GitHub repository Secrets. Never paste tokens into code.
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_TOKEN || secrets.BOT_TOKEN || secrets.TG_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHATID || secrets.CHAT_ID || secrets.TG_CHAT_ID }}
+
+    steps:
+      - name: Repository laden
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Telegram testen (nur bei Testlauf)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.telegram_test }}
+        run: python -u scanner.py --telegram-test
+
+      - name: Top-400 Scanner starten
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.telegram_test }}
+        run: python -u scanner.py --max-markets 400 --min-touches 2 --output-dir results
+
+      - name: Ergebnisse speichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanner-ergebnisse
+          path: results/
+          if-no-files-found: ignore
